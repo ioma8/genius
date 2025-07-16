@@ -1,0 +1,70 @@
+name: Build and Release macOS App
+
+on:
+  push:
+    tags:
+      - 'v*' # Triggers on tags like v1.0, v2023.12.25
+
+jobs:
+  build:
+    runs-on: macos-latest # Use macos-latest for ARM64 support
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Build Xcode project
+      run: |
+        xcodebuild -project Genius1/Genius.xcodeproj -scheme Genius -configuration Release
+
+    - name: Find built app path
+      id: get_app_path
+      run: |
+        APP_PATH=$(find ~/Library/Developer/Xcode/DerivedData -name "Genius.app" -print -quit)
+        if [ -z "$APP_PATH" ]; then
+          echo "Error: Genius.app not found!"
+          exit 1
+        fi
+        echo "APP_PATH=$APP_PATH" >> $GITHUB_OUTPUT
+
+    - name: Zip application bundle
+      run: |
+        APP_NAME=$(basename "${{ steps.get_app_path.outputs.APP_PATH }}")
+        zip -r "${APP_NAME}.zip" "${{ steps.get_app_path.outputs.APP_PATH }}"
+
+    - name: Upload application artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: Genius-macOS-App
+        path: Genius.app.zip
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest # Can use ubuntu-latest for release creation
+
+    steps:
+    - name: Download application artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: Genius-macOS-App
+
+    - name: Create GitHub Release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ github.ref }}
+        release_name: Release ${{ github.ref }}
+        draft: false
+        prerelease: false
+
+    - name: Upload Release Asset
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: Genius.app.zip
+        asset_name: Genius-macOS-${{ github.ref_name }}.zip
+        asset_content_type: application/zip
